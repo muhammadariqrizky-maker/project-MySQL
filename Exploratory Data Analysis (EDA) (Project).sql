@@ -73,4 +73,128 @@ group by country
 order by 2 desc;
 
 
--- Melakukan perhitungan rolling total (akumulasi bulanan) menggunakan Common Table Expressions (CTE) dan fungsi window untuk melihat tren perkembangan layoff dari waktu ke waktu
+-- Rolling Total: Menggunakan fungsi jendela (window function) dan CTE (Common Table Expression) untuk menghitung total kumulatif PHK bulan demi bulan
+# pakai Window Function / CTE
+
+select *
+from layoffs_staging3;
+
+select substring(`date`, 6, 2) as `month`,	#AMBIL KARAKTER KE-6 SEBANYAK 2 KARAKTER PADA KOLOM `date`
+sum(total_laid_off)	as sum
+from layoffs_staging3
+group by `month`;			
+
+select substring(`date`, 1, 7) as `month`,
+sum(total_laid_off)	as sum
+from layoffs_staging3
+group by `month`
+having `month` is not null
+order by 1 asc;	
+			# ☝️☝️☝️ SAMA 👇👇👇
+select substring(`date`, 1, 7) as `month`,
+sum(total_laid_off)	as total_off
+from layoffs_staging3
+where substring(`date`, 1, 7) is not null
+group by `month`
+order by 1 asc;	
+
+
+-- Rolling Total
+# langkah 1: copas yg terakhir ☝️ ke dalam tanda kurung '()' 👇
+with rolling_total as
+(
+select substring(`date`, 1, 7) as `month`,
+sum(total_laid_off)	as total_off
+from layoffs_staging3
+where substring(`date`, 1, 7) is not null
+group by `month`
+order by 1 asc	
+)
+select *
+from rolling_total;
+
+# langkah 2: GANTI 'SELECT'
+with rolling_total as
+(
+select substring(`date`, 1, 7) as `month`,
+sum(total_laid_off)	as total_off
+from layoffs_staging3
+where substring(`date`, 1, 7) is not null
+group by `month`
+order by 1 asc	
+)
+select `month`, total_off,
+sum(total_off) over(order by `month`) as rolling_total
+from rolling_total;
+		# PERHATIKAN KEPALA ANGKA PADA 'rolling_total'
+        # PALING CEPAT BERUBAH DI AKHIR TAHUN 2022-2023
+
+select company, `date`, sum(total_laid_off)
+from layoffs_staging3
+group by company, `date`;
+
+select company, year(`date`), sum(total_laid_off)
+from layoffs_staging3
+group by company, year(`date`);
+
+select company, year(`date`), sum(total_laid_off)
+from layoffs_staging3
+group by company, year(`date`)
+order by 3 desc;		# INI MENAMPILKAN COMPANY MANA YG PLG BYK MELAKUKAN PHK,
+						# DIURUTKAN BERDASARKAN JUMLAH PLG BYK DAN TAHUN-NYA
+	
+    # COPAS ☝️ KE DALAM TANDA KURUNG  
+with company_year as
+(
+select company, year(`date`), sum(total_laid_off)
+from layoffs_staging3
+group by company, year(`date`)
+)
+select *
+from company_year;
+
+	# ALIASKAN
+with company_year (company, years, total_laid_off) as
+(
+select company, year(`date`), sum(total_laid_off)
+from layoffs_staging3
+group by company, year(`date`)
+)
+select *
+from company_year;
+
+	# BERI RANK UTK BERDASARKAN TAHUN, DAN URUTKAN 'total_laid_off' DARI YG TERBESAR
+with company_year (company, years, total_laid_off) as
+(
+select company, year(`date`), sum(total_laid_off)
+from layoffs_staging3
+group by company, year(`date`)
+)
+select *, dense_rank() over(partition by years order by total_laid_off desc) as ranking
+from company_year
+where years is not null
+order by ranking asc;
+		# DENSE_RANK(): Jika ada dua perusahaan dengan jumlah 'sesuatu' yang sama, keduanya akan mendapatkan peringkat yang sama.
+        # OVER(PARTITION BY years ...): Peringkat 1 akan muncul kembali untuk tahun yg sama. ini tempat utk menentukan 'sesuatu' itu
+		# ORDER BY total_laid_off DESC: Mengurutkan perusahaan dalam setiap tahun berdasarkan jumlah PHK dari yang terbanyak ke terkecil.
+# KESIMPULAN:
+# memeringkat perusahaan berdasarkan jumlah PHK terbanyak setiap tahunnya
+
+
+	# UPGRADE: Hanya ingin menampilkan (memfilter) 5 company per tahun
+    # 		   Hanya ingin menampilkan 5 company per tahun yg melakukan PHK palng banyak.
+# jadikan Double CTE
+with company_year (company, years, total_laid_off) as
+(
+select company, year(`date`), sum(total_laid_off)
+from layoffs_staging3
+group by company, year(`date`)
+), company_year_rank as
+(
+select *, dense_rank() over(partition by years order by total_laid_off desc) as ranking
+from company_year
+where years is not null
+)
+select *
+from company_year_rank
+where ranking <= 5;
